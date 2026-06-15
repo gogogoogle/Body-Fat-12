@@ -3,9 +3,222 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World</title>
+    <title>我的雲端相簿</title>
+    <!-- 引入 Google Fonts 讓字體更具現代感 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #f8fafc;
+            --accent-color: #3b82f6;
+            --card-bg: rgba(30, 41, 59, 0.7);
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+        }
+
+        /* 頂部導覽列：毛玻璃效果 (Glassmorphism) */
+        header {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            padding: 1.5rem 2rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h1 {
+            margin: 0;
+            font-weight: 700;
+            font-size: 2rem;
+            /* 文字漸層色 */
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        main {
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* 載入中的轉圈圈動畫 */
+        #loader {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 50vh;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 響應式相片網格 */
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            opacity: 0; /* 初始隱藏，載入完成後淡入 */
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        .gallery.loaded {
+            opacity: 1;
+        }
+
+        /* 相片卡片樣式 */
+        .photo-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* 卡片懸停效果 */
+        .photo-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            display: block;
+            transition: transform 0.5s ease;
+        }
+
+        /* 圖片放大微動畫 */
+        .photo-card:hover img {
+            transform: scale(1.05);
+        }
+
+        .photo-info {
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .photo-title {
+            margin: 0;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #cbd5e1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis; /* 文字過長顯示刪節號 */
+        }
+
+        .error-message {
+            color: #ef4444;
+            text-align: center;
+            padding: 2rem;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 8px;
+            display: none;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+    </style>
 </head>
 <body>
-    <h1>Hello World!</h1>
+    <header>
+        <h1>我的雲端相簿</h1>
+    </header>
+
+    <main>
+        <!-- 載入中動畫 -->
+        <div id="loader">
+            <div class="spinner"></div>
+            <p style="color: #94a3b8;">正在從 Google Drive 載入照片...</p>
+        </div>
+        
+        <!-- 錯誤提示區塊 -->
+        <div id="error" class="error-message"></div>
+
+        <!-- 相片將會放在這個區塊內 -->
+        <div id="gallery" class="gallery"></div>
+    </main>
+
+    <script>
+        // 你的 Google Apps Script Web App 網址
+        const API_URL = 'https://script.google.com/macros/s/AKfycbym3QMabAJ52k3BFYU78n1APkh5xkSKr1NwH8VEukPzecf2xPtQhms9Opg80cOWBS1Jww/exec';
+
+        async function fetchPhotos() {
+            const loader = document.getElementById('loader');
+            const gallery = document.getElementById('gallery');
+            const errorDiv = document.getElementById('error');
+
+            try {
+                // 向 Google Apps Script 發送請求
+                const response = await fetch(API_URL);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // 資料抓取成功，隱藏載入動畫
+                loader.style.display = 'none';
+
+                // 動態生成相片卡片
+                data.forEach(photo => {
+                    const card = document.createElement('div');
+                    card.className = 'photo-card';
+                    
+                    // 使用 <img loading="lazy"> 讓圖片具備延遲載入(Lazy load)功能，提升效能
+                    card.innerHTML = `
+                        <img src="${photo.url}" alt="${photo.name}" loading="lazy">
+                        <div class="photo-info">
+                            <p class="photo-title">${photo.name}</p>
+                        </div>
+                    `;
+                    
+                    // 點擊圖片可以在新分頁開啟原圖
+                    card.onclick = () => window.open(photo.url, '_blank');
+                    
+                    gallery.appendChild(card);
+                });
+
+                // 加上 loaded class，觸發淡入動畫效果
+                setTimeout(() => {
+                    gallery.classList.add('loaded');
+                }, 100);
+
+            } catch (error) {
+                console.error('Error fetching photos:', error);
+                loader.style.display = 'none';
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = '載入照片失敗，可能是跨域(CORS)或是部署權限問題。詳細錯誤：' + error.message;
+            }
+        }
+
+        // 當網頁準備好時，自動開始抓取照片
+        window.addEventListener('DOMContentLoaded', fetchPhotos);
+    </script>
 </body>
 </html>
